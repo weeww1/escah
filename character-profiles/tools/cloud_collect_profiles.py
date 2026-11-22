@@ -63,7 +63,9 @@ def state_from_secret(value, protocol):
 
 def fetch_roster(proxy=''):
     from update_manifest import CDN, MANIFESTS, decode_manifest
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({'https': proxy} if proxy else {}))
+    # The public CDN is reachable directly from Actions. Reserve the private
+    # account's proxy route for DMM and game requests, without proxying assets.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     records = {}
     try:
         for name in MANIFESTS:

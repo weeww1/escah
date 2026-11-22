@@ -71,6 +71,10 @@ def start():
         config = proxy_config(json.loads(value))
     except (ValueError, TypeError):
         raise RuntimeError('云端节点 Secret 不是有效的 JSON') from None
+    diagnostics = diagnose_node(config['proxies'][0])
+    print(json.dumps({'phase': 'proxy-network-check', **diagnostics}), flush=True)
+    if not diagnostics['nodeTcpReachable']:
+        raise RuntimeError('当前节点入口无法从 GitHub runner 连接，未尝试 DMM 登录')
     directory = runtime_directory()
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     config_file = directory / 'config.json'
@@ -100,6 +104,22 @@ def start():
     with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
         output.write('proxy_url=http://127.0.0.1:%s\n' % PORT)
     print('Cloud proxy started with one private node; listening on loopback only.')
+
+
+def diagnose_node(node):
+    # Report connection stages only; never report upstream hosts or credentials.
+    try:
+        addresses = socket.getaddrinfo(node['server'], node['port'], type=socket.SOCK_STREAM)
+        resolved = bool(addresses)
+    except OSError:
+        return {'nodeDnsResolved': False, 'nodeTcpReachable': False}
+    try:
+        with socket.create_connection((node['server'], node['port']), timeout=8):
+            pass
+        reachable = True
+    except OSError:
+        reachable = False
+    return {'nodeDnsResolved': resolved, 'nodeTcpReachable': reachable}
 
 
 def stop():
