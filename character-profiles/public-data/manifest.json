@@ -1,0 +1,14 @@
+{
+  "files": {
+    "characters.json": {
+      "bytes": 388927,
+      "sha256": "17edf89e8176ec0dae8cc1a03149b3d68526e378f9926cba68ecf62535e830e9"
+    },
+    "stories.json": {
+      "bytes": 82542,
+      "sha256": "8ed8b29cfca1e8c4214f8668f9fb62575f983e32849943733af2a7bcb916b09e"
+    }
+  },
+  "generatedAt": "2026-11-22T09:44:37.282341+00:00",
+  "schemaVersion": 1
+}

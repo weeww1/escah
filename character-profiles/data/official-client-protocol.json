@@ -1,0 +1,14 @@
+{
+  "crypt": {
+    "defaultKey": "8qpkyq5H79ZDguw8bHunrW9bB1T5UeiMrNjh0iaCZkQ=",
+    "iv": "tyzbAYTl485qK/t+dqy0YA==",
+    "salt": "iXuffZJ9RgdfrYgQEufgusasMEfFtRS/QiL2ORhLUM0="
+  },
+  "headers": {
+    "User-Agent": "Mozilla/5.0",
+    "X-App-Ver": "2.142.3",
+    "X-Crypt-On": "1"
+  },
+  "schemaVersion": 1,
+  "source": "local-original-client"
+}
