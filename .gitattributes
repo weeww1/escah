@@ -1,2 +1,4 @@
 character-profiles/public-data/*.json text eol=lf
 character-profiles/public-data/*.dat binary
+
+story-titles/public-data/*.dat binary
