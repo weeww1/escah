@@ -6854,6 +6854,7 @@
       "id": 416,
       "name": "メイドハータン",
       "realName": "鬼神谷はーたん",
+      "serif": "「萌え萌え、キュン……▼\n　くっ……殺せ……ッ」",
       "sources": {
         "artist": "official",
         "bio": "official",
@@ -6861,6 +6862,7 @@
         "faction": "official",
         "name": "official",
         "realName": "official",
+        "serif": "official",
         "sub": "official"
       },
       "sub": "メイドハータン"
@@ -8168,6 +8170,6 @@
       "sub": "ハルカ・リバース"
     }
   },
-  "generatedAt": "2026-11-22T02:47:30.211550+00:00",
+  "generatedAt": "2026-11-22T11:08:57.153307+00:00",
   "schemaVersion": 1
 }
