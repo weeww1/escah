@@ -4,7 +4,9 @@ GitHub Actions 负责使用维护者的 DMM 平台 Cookie 获取新会话并采�
 
 ## 运行
 
-工作流：`.github/workflows/character-profiles.yml`。先在 Actions 中手动运行；首次验证成功前不启用定时任务。
+工作流：`.github/workflows/character-profiles.yml`。每天北京时间 12:17 自动采集并同步，也可在 Actions 中手动运行。
+
+2026-11-22 端到端试跑 [45015850126](https://github.com/weeww1/escah/actions/runs/45015850126) 已成功：云端代理、DMM 认证、角色资料采集、GitHub 提交和 Gitee 镜像均通过；本次补全 1 个角色，复用 388 个已验证缓存，失败 0 个。
 
 在仓库 Actions Secrets 中保存 `DMM_COOKIES_JSON`；如运行地区需要代理，另设云端可用的 `DMM_HTTP_PROXY`。不要在 YAML、仓库文件、运行输入或日志中填写 Cookie。
 

@@ -1,6 +1,9 @@
 name: Update public character profiles
 
 on:
+  schedule:
+    # 12:17 Asia/Shanghai (UTC+8)
+    - cron: '17 4 * * *'
   workflow_dispatch:
     inputs:
       refresh_all:
