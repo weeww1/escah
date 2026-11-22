@@ -14,8 +14,11 @@ from player_paths import data_root
 ROOT = data_root()
 CONFIG = ROOT / 'shared-data.config.json'
 PACK_NAME = 'metadata.dat'
-PACK_HEADER = b'ESCA-META-1\n'
-PUBLIC_FILES = ('characters.json', 'stories.json', 'manifest.json')
+PACK_HEADER = b'ESCA-META-2\n'
+LEGACY_PACK_HEADER = b'ESCA-META-1\n'
+DOCUMENT_FILES = ('characters.json', 'stories.json')
+LEGACY_FILES = (*DOCUMENT_FILES, 'manifest.json')
+PUBLIC_FILES = (PACK_NAME,)
 MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_PACK_JSON_BYTES = 32 * 1024 * 1024
 FIELDS = ('name', 'sub', 'realName', 'faction', 'cv', 'artist', 'bio', 'serif')
@@ -173,21 +176,16 @@ def export(root=ROOT):
     characters, stories = build(root)
     output = root / 'public-data'
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    for name, key, value in [('characters.json', 'characters', characters), ('stories.json', 'stories', stories)]:
-        previous = read(output / name)
+    previous_documents = load_public_documents(output) if (output / PACK_NAME).exists() or any((output / name).exists() for name in LEGACY_FILES) else ({}, {})
+    documents = []
+    for previous, key, value in zip(previous_documents, ('characters', 'stories'), (characters, stories)):
         document = {'schemaVersion': 1, 'generatedAt': previous.get('generatedAt', now) if previous.get(key) == value else now, key: value}
         if key == 'characters':
             validate_characters(document)
         else:
             validate_stories(document)
-        write(output / name, document)
-    files = {}
-    for name in ('characters.json', 'stories.json'):
-        data = (output / name).read_bytes()
-        files[name] = {'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
-    previous = read(output / 'manifest.json')
-    write(output / 'manifest.json', {'schemaVersion': 1, 'generatedAt': previous.get('generatedAt', now) if previous.get('files') == files else now, 'files': files})
-    write_packed_bundle(output)
+        documents.append(document)
+    write_packed_bundle(output, documents)
     (output / 'README.md').write_text('Public game metadata only. Contains character profiles and story titles.\nNo accounts, login tokens, cookies, keys, ownership or unlock states.\n', encoding='utf-8')
     return {'characters': len(characters), 'stories': {kind: len(rows) for kind, rows in stories.items()}, 'directory': str(output)}
 
@@ -240,20 +238,23 @@ def validate_stories(document):
 
 
 def validate_public_files(files):
-    if set(files) != set(PUBLIC_FILES):
+    if set(files) not in (set(LEGACY_FILES), set(DOCUMENT_FILES)):
         raise ValueError('资料包文件列表不正确')
     for name, data in files.items():
         if len(data) > (65536 if name == 'manifest.json' else MAX_FILE_BYTES):
             raise ValueError('公开资料包超出大小限制')
-    manifest = json.loads(files['manifest.json'])
-    if not isinstance(manifest, dict) or manifest.get('schemaVersion') != 1 or set(manifest.get('files', {})) != {'characters.json', 'stories.json'}:
-        raise ValueError('资料清单格式不正确')
+    manifest = None
+    if 'manifest.json' in files:
+        manifest = json.loads(files['manifest.json'])
+        if not isinstance(manifest, dict) or manifest.get('schemaVersion') != 1 or set(manifest.get('files', {})) != set(DOCUMENT_FILES):
+            raise ValueError('资料清单格式不正确')
     documents = []
     for name, validate in [('characters.json', validate_characters), ('stories.json', validate_stories)]:
         data = files[name]
-        record = manifest['files'][name]
-        if not isinstance(record, dict) or len(data) != record.get('bytes') or hashlib.sha256(data).hexdigest() != record.get('sha256'):
-            raise ValueError('资料包校验失败：' + name)
+        if manifest is not None:
+            record = manifest['files'][name]
+            if not isinstance(record, dict) or len(data) != record.get('bytes') or hashlib.sha256(data).hexdigest() != record.get('sha256'):
+                raise ValueError('资料包校验失败：' + name)
         document = json.loads(data)
         if not isinstance(document, dict):
             raise ValueError('资料内容格式不正确')
@@ -261,12 +262,29 @@ def validate_public_files(files):
     return tuple(documents)
 
 
-def write_packed_bundle(directory):
+def load_public_documents(directory):
+    directory = Path(directory)
+    if (directory / PACK_NAME).exists():
+        files = unpack_public_files((directory / PACK_NAME).read_bytes())
+    else:
+        files = {name: (directory / name).read_bytes() for name in LEGACY_FILES}
+    return validate_public_files(files)
+
+
+def remove_legacy_files(directory):
+    for name in LEGACY_FILES:
+        (Path(directory) / name).unlink(missing_ok=True)
+
+
+def write_packed_bundle(directory, documents=None):
     """Deterministic compression/encoding for transport; this is not encryption."""
     directory = Path(directory)
-    files = {name: (directory / name).read_bytes() for name in PUBLIC_FILES}
+    characters, stories = load_public_documents(directory) if documents is None else documents
+    files = {name: (json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + '\n').encode('utf-8')
+             for name, document in zip(DOCUMENT_FILES, (characters, stories))}
     validate_public_files(files)
-    packet = json.dumps({'schemaVersion': 1, 'files': {name: data.decode('utf-8') for name, data in files.items()}},
+    packet = json.dumps({'schemaVersion': 2, 'files': {name: data.decode('utf-8') for name, data in files.items()},
+                         'sha256': {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}},
                         ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
     if len(packet) > MAX_PACK_JSON_BYTES:
         raise ValueError('公开资料包超出大小限制')
@@ -274,28 +292,35 @@ def write_packed_bundle(directory):
     if len(data) > MAX_FILE_BYTES:
         raise ValueError('公开资料包超出大小限制')
     destination = directory / PACK_NAME
+    directory.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(destination.name + '.tmp')
     temporary.write_bytes(data)
     temporary.replace(destination)
+    remove_legacy_files(directory)
     return destination
 
 
 def unpack_public_files(data):
-    if len(data) > MAX_FILE_BYTES or not data.startswith(PACK_HEADER):
+    header = PACK_HEADER if data.startswith(PACK_HEADER) else LEGACY_PACK_HEADER
+    if len(data) > MAX_FILE_BYTES or not data.startswith(header):
         raise ValueError('资料混淆包版本或大小不正确')
     try:
-        compressed = base64.b64decode(data[len(PACK_HEADER):].removesuffix(b'\n'), validate=True)
+        compressed = base64.b64decode(data[len(header):].removesuffix(b'\n'), validate=True)
         decoder = zlib.decompressobj()
         packet = decoder.decompress(compressed, MAX_PACK_JSON_BYTES + 1)
         if len(packet) > MAX_PACK_JSON_BYTES or not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
             raise ValueError('资料混淆包不完整或超出大小限制')
         document = json.loads(packet)
-        if not isinstance(document, dict) or set(document) != {'schemaVersion', 'files'} or document['schemaVersion'] != 1:
+        legacy = header == LEGACY_PACK_HEADER
+        expected_keys = {'schemaVersion', 'files'} if legacy else {'schemaVersion', 'files', 'sha256'}
+        if not isinstance(document, dict) or set(document) != expected_keys or document['schemaVersion'] != (1 if legacy else 2):
             raise ValueError('资料混淆包格式不正确')
         files = document['files']
-        if not isinstance(files, dict) or set(files) != set(PUBLIC_FILES) or any(not isinstance(value, str) for value in files.values()):
+        if not isinstance(files, dict) or set(files) != set(LEGACY_FILES if legacy else DOCUMENT_FILES) or any(not isinstance(value, str) for value in files.values()):
             raise ValueError('资料混淆包文件列表不正确')
         files = {name: value.encode('utf-8') for name, value in files.items()}
+        if not legacy and document['sha256'] != {name: hashlib.sha256(value).hexdigest() for name, value in files.items()}:
+            raise ValueError('资料包校验失败')
         validate_public_files(files)
         return files
     except (ValueError, TypeError, zlib.error, UnicodeError) as error:
@@ -304,12 +329,9 @@ def unpack_public_files(data):
 
 def validate_bundle(directory, require_packed=False):
     directory = Path(directory)
-    files = {name: (directory / name).read_bytes() for name in PUBLIC_FILES}
-    validate_public_files(files)
-    packed = directory / PACK_NAME
-    if require_packed or packed.exists():
-        if unpack_public_files(packed.read_bytes()) != files:
-            raise ValueError('资料混淆包与公开 JSON 不一致')
+    if require_packed and not (directory / PACK_NAME).is_file():
+        raise ValueError('资料混淆包不存在')
+    load_public_documents(directory)
     return True
 
 
@@ -326,7 +348,7 @@ def refresh(root=ROOT, opener=None, on_source=None):
     # Validate every destination before any network request.
     for source in sources:
         source_url(source, 'manifest.json')
-        if source.get('format', 'json') not in ('json', 'packed-v1'):
+        if source.get('format', 'json') not in ('json', 'packed', 'packed-v1'):
             raise ValueError('资料下载格式不支持')
         proxy = source.get('proxy', '')
         if proxy:
@@ -343,7 +365,7 @@ def refresh(root=ROOT, opener=None, on_source=None):
                 raise ValueError('公开资料包超出大小限制')
             return data
 
-        if source.get('format') == 'packed-v1':
+        if source.get('format') in ('packed', 'packed-v1'):
             return validate_public_files(unpack_public_files(download(PACK_NAME, MAX_FILE_BYTES)))
 
         manifest = json.loads(download('manifest.json', 65536))

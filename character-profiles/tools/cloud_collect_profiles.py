@@ -17,7 +17,7 @@ import shared_profile_data as public
 from player_paths import data_root
 
 ROOT = data_root()
-PUBLIC_FILES = (*public.PUBLIC_FILES, public.PACK_NAME)
+PUBLIC_FILES = public.PUBLIC_FILES
 
 
 def state_from_secret(value, protocol):
@@ -86,7 +86,8 @@ def seed_public_cache(project, scratch):
         return
     public.validate_bundle(directory)
     shutil.copytree(directory, scratch / 'public-data', dirs_exist_ok=True)
-    characters = public.read(directory / 'characters.json')['characters']
+    character_document, story_document = public.load_public_documents(directory)
+    characters = character_document['characters']
     cache = {}
     for key, row in characters.items():
         fields = {field: row[field] for field in ('cv', 'artist', 'bio', 'serif') if isinstance(row.get(field), str)}
@@ -94,7 +95,7 @@ def seed_public_cache(project, scratch):
                       'fields': fields}
     public.write(scratch / 'data/official-character-profiles.json', {'characters': cache})
     # Preserve already published titles; this pipeline refreshes character data.
-    for kind, rows in public.read(directory / 'stories.json')['stories'].items():
+    for kind, rows in story_document['stories'].items():
         folder = {'event': 'events', 'main': 'main', 'other': 'other'}[kind]
         if kind == 'event':
             public.write(scratch / 'stories/events/title-catalog.json', {'events': rows})

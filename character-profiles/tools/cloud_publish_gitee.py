@@ -7,10 +7,11 @@ import tempfile
 import urllib.parse
 from pathlib import Path
 from player_paths import data_root
-from shared_profile_data import validate_bundle
+from shared_profile_data import validate_bundle, remove_legacy_files
 
 ROOT = data_root()
-FILES = ['public-data/characters.json', 'public-data/stories.json', 'public-data/manifest.json', 'public-data/metadata.dat']
+FILES = ['public-data/metadata.dat']
+RETIRED_FILES = ['public-data/characters.json', 'public-data/stories.json', 'public-data/manifest.json']
 
 
 def repository_url(value, provider='gitee'):
@@ -60,16 +61,23 @@ def publish(project=ROOT, environ=None):
             prefix = project.resolve().relative_to(repository_root).as_posix()
         except ValueError:
             raise RuntimeError('资料目录不在当前 Git 仓库内') from None
-        allowed = {((prefix + '/') if prefix != '.' else '') + name for name in FILES}
+        allowed = {((prefix + '/') if prefix != '.' else '') + name for name in [*FILES, *RETIRED_FILES]}
         staged = git(['diff', '--cached', '--name-only']).stdout.splitlines()
         if set(staged) - allowed:
             raise RuntimeError('流水线暂存区存在非资料文件，已停止发布')
-        git(['add', '--', *FILES])
-        if git(['diff', '--cached', '--quiet', '--', *FILES], success=(0, 1)).returncode == 0:
+        retired_tracked = git(['ls-files', '--', *RETIRED_FILES]).stdout.splitlines()
+        remove_legacy_files(project / 'public-data')
+        paths = [*FILES, *retired_tracked]
+        git(['add', '--', *paths])
+        staged_changes = git(['diff', '--cached', '--name-status']).stdout.splitlines()
+        retired_paths = {((prefix + '/') if prefix != '.' else '') + name for name in RETIRED_FILES}
+        if any(line.split('\t', 1)[-1] in retired_paths and not line.startswith('D\t') for line in staged_changes):
+            raise RuntimeError('旧明文资料只能删除，不能重新发布')
+        if git(['diff', '--cached', '--quiet', '--', *paths], success=(0, 1)).returncode == 0:
             print('Public metadata unchanged; no commit needed.')
             return False
         git(['-c', 'user.name=Metadata updater', '-c', 'user.email=metadata-updater@users.noreply.' + ('github.com' if provider == 'github' else 'gitee.com'),
-             'commit', '-m', 'Update public metadata [skip ci]', '--', *FILES])
+             'commit', '-m', 'Update public metadata [skip ci]', '--', *paths])
         git(['push', url, 'HEAD:refs/heads/' + branch])
         print('Validated public metadata published to ' + provider + '.')
         return True
