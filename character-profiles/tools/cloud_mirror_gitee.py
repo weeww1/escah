@@ -1,4 +1,4 @@
-"""Mirror only the three validated public JSON files into the existing Gitee repo."""
+"""Mirror only validated public metadata and its encoded bundle into Gitee."""
 import base64
 import os
 import shutil
@@ -13,7 +13,7 @@ from cloud_publish_gitee import FILES, publish, repository_url
 
 def mirror(project=None, environ=None):
     project = Path(project) if project is not None else data_root()
-    validate_bundle(project / 'public-data')
+    validate_bundle(project / 'public-data', require_packed=True)
     env = dict(os.environ if environ is None else environ)
     for key in list(env):
         if key.startswith('GIT_CONFIG_') or key in ('DMM_COOKIES_JSON', 'DMM_HTTP_PROXY', 'DMM_MIHOMO_NODE_JSON', 'GH_TOKEN', 'GITHUB_TOKEN', 'GITEE_BRANCH'):
@@ -41,7 +41,7 @@ def mirror(project=None, environ=None):
         (output / 'public-data').mkdir(parents=True, exist_ok=True)
         for relative in FILES:
             shutil.copyfile(project / relative, output / relative)
-        validate_bundle(output / 'public-data')
+        validate_bundle(output / 'public-data', require_packed=True)
         # Existing unrelated files and history stay in this separate checkout.
         return publish(output, env)
 

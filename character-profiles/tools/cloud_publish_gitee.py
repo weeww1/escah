@@ -1,4 +1,4 @@
-"""Commit only public metadata; Git credentials come from the CI environment."""
+"""Commit only public metadata and its encoded bundle; credentials come from CI."""
 import os
 import re
 import subprocess
@@ -10,7 +10,7 @@ from player_paths import data_root
 from shared_profile_data import validate_bundle
 
 ROOT = data_root()
-FILES = ['public-data/characters.json', 'public-data/stories.json', 'public-data/manifest.json']
+FILES = ['public-data/characters.json', 'public-data/stories.json', 'public-data/manifest.json', 'public-data/metadata.dat']
 
 
 def repository_url(value, provider='gitee'):
@@ -39,7 +39,7 @@ def publish(project=ROOT, environ=None):
     branch = (env.get('GITEE_BRANCH') if provider == 'gitee' else '') or env.get('META_BRANCH') or ('main' if provider == 'github' else 'master')
     if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_./-]*', branch) or '..' in branch or any(not p or p == '.' for p in branch.split('/')):
         raise RuntimeError('资料分支配置不正确')
-    validate_bundle(project / 'public-data')
+    validate_bundle(project / 'public-data', require_packed=True)
     env.update({'GIT_TERMINAL_PROMPT': '0', 'GIT_TRACE': '0', 'GIT_CURL_VERBOSE': '0', 'GIT_TRACE_CURL': '0'})
     with tempfile.TemporaryDirectory(prefix='metadata-push-') as temporary:
         askpass = Path(temporary) / 'askpass.py'

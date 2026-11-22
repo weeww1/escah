@@ -1,15 +1,23 @@
 """Build and download public metadata bundles. Never export login/account data."""
+import base64
 import datetime
 import hashlib
 import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from pathlib import Path
 from player_paths import data_root
 
 ROOT = data_root()
 CONFIG = ROOT / 'shared-data.config.json'
+PACK_NAME = 'metadata.dat'
+PACK_HEADER = b'ESCA-META-1\n'
+PUBLIC_FILES = ('characters.json', 'stories.json', 'manifest.json')
+MAX_FILE_BYTES = 8 * 1024 * 1024
+MAX_PACK_JSON_BYTES = 32 * 1024 * 1024
 FIELDS = ('name', 'sub', 'realName', 'faction', 'cv', 'artist', 'bio', 'serif')
 SECRET = re.compile(r'(?i)(?:PHPSESSID\s*=|Authorization\s*:|Bearer\s+[A-Za-z0-9_-]{20}|-----BEGIN[^\n]*PRIVATE|(?:access_token|session_id)\s*[:=])')
 
@@ -179,6 +187,7 @@ def export(root=ROOT):
         files[name] = {'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
     previous = read(output / 'manifest.json')
     write(output / 'manifest.json', {'schemaVersion': 1, 'generatedAt': previous.get('generatedAt', now) if previous.get('files') == files else now, 'files': files})
+    write_packed_bundle(output)
     (output / 'README.md').write_text('Public game metadata only. Contains character profiles and story titles.\nNo accounts, login tokens, cookies, keys, ownership or unlock states.\n', encoding='utf-8')
     return {'characters': len(characters), 'stories': {kind: len(rows) for kind, rows in stories.items()}, 'directory': str(output)}
 
@@ -230,50 +239,151 @@ def validate_stories(document):
     return document
 
 
-def validate_bundle(directory):
-    directory = Path(directory)
-    manifest = read(directory / 'manifest.json')
-    if manifest.get('schemaVersion') != 1 or set(manifest.get('files', {})) != {'characters.json', 'stories.json'}:
+def validate_public_files(files):
+    if set(files) != set(PUBLIC_FILES):
+        raise ValueError('资料包文件列表不正确')
+    for name, data in files.items():
+        if len(data) > (65536 if name == 'manifest.json' else MAX_FILE_BYTES):
+            raise ValueError('公开资料包超出大小限制')
+    manifest = json.loads(files['manifest.json'])
+    if not isinstance(manifest, dict) or manifest.get('schemaVersion') != 1 or set(manifest.get('files', {})) != {'characters.json', 'stories.json'}:
         raise ValueError('资料清单格式不正确')
+    documents = []
     for name, validate in [('characters.json', validate_characters), ('stories.json', validate_stories)]:
-        data = (directory / name).read_bytes()
+        data = files[name]
         record = manifest['files'][name]
-        if len(data) != record.get('bytes') or hashlib.sha256(data).hexdigest() != record.get('sha256'):
+        if not isinstance(record, dict) or len(data) != record.get('bytes') or hashlib.sha256(data).hexdigest() != record.get('sha256'):
             raise ValueError('资料包校验失败：' + name)
-        validate(json.loads(data))
+        document = json.loads(data)
+        if not isinstance(document, dict):
+            raise ValueError('资料内容格式不正确')
+        documents.append(validate(document))
+    return tuple(documents)
+
+
+def write_packed_bundle(directory):
+    """Deterministic compression/encoding for transport; this is not encryption."""
+    directory = Path(directory)
+    files = {name: (directory / name).read_bytes() for name in PUBLIC_FILES}
+    validate_public_files(files)
+    packet = json.dumps({'schemaVersion': 1, 'files': {name: data.decode('utf-8') for name, data in files.items()}},
+                        ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    if len(packet) > MAX_PACK_JSON_BYTES:
+        raise ValueError('公开资料包超出大小限制')
+    data = PACK_HEADER + base64.b64encode(zlib.compress(packet, 9)) + b'\n'
+    if len(data) > MAX_FILE_BYTES:
+        raise ValueError('公开资料包超出大小限制')
+    destination = directory / PACK_NAME
+    temporary = destination.with_name(destination.name + '.tmp')
+    temporary.write_bytes(data)
+    temporary.replace(destination)
+    return destination
+
+
+def unpack_public_files(data):
+    if len(data) > MAX_FILE_BYTES or not data.startswith(PACK_HEADER):
+        raise ValueError('资料混淆包版本或大小不正确')
+    try:
+        compressed = base64.b64decode(data[len(PACK_HEADER):].removesuffix(b'\n'), validate=True)
+        decoder = zlib.decompressobj()
+        packet = decoder.decompress(compressed, MAX_PACK_JSON_BYTES + 1)
+        if len(packet) > MAX_PACK_JSON_BYTES or not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
+            raise ValueError('资料混淆包不完整或超出大小限制')
+        document = json.loads(packet)
+        if not isinstance(document, dict) or set(document) != {'schemaVersion', 'files'} or document['schemaVersion'] != 1:
+            raise ValueError('资料混淆包格式不正确')
+        files = document['files']
+        if not isinstance(files, dict) or set(files) != set(PUBLIC_FILES) or any(not isinstance(value, str) for value in files.values()):
+            raise ValueError('资料混淆包文件列表不正确')
+        files = {name: value.encode('utf-8') for name, value in files.items()}
+        validate_public_files(files)
+        return files
+    except (ValueError, TypeError, zlib.error, UnicodeError) as error:
+        raise ValueError('资料混淆包还原或校验失败，原有缓存已保留') from error
+
+
+def validate_bundle(directory, require_packed=False):
+    directory = Path(directory)
+    files = {name: (directory / name).read_bytes() for name in PUBLIC_FILES}
+    validate_public_files(files)
+    packed = directory / PACK_NAME
+    if require_packed or packed.exists():
+        if unpack_public_files(packed.read_bytes()) != files:
+            raise ValueError('资料混淆包与公开 JSON 不一致')
     return True
 
 
-def refresh(root=ROOT, opener=urllib.request.urlopen):
+def refresh(root=ROOT, opener=None, on_source=None):
     root = Path(root)
     config = read(root / 'shared-data.config.json')
     if not config.get('repository'):
         return {'configured': False, 'updated': False}
 
-    def download(name, limit):
-        request = urllib.request.Request(source_url(config, name), headers={'User-Agent': 'public-game-metadata-updater/1.0', 'Accept': 'application/json'})
-        with opener(request, timeout=20) as response:
-            data = response.read(limit + 1)
-        if len(data) > limit:
-            raise ValueError('公开资料包超出大小限制')
-        return data
+    fallbacks = config.get('fallbacks', [])
+    if not isinstance(fallbacks, list) or len(fallbacks) > 8 or any(not isinstance(row, dict) for row in fallbacks):
+        raise ValueError('备用资料源配置不正确')
+    sources = [config, *fallbacks]
+    # Validate every destination before any network request.
+    for source in sources:
+        source_url(source, 'manifest.json')
+        if source.get('format', 'json') not in ('json', 'packed-v1'):
+            raise ValueError('资料下载格式不支持')
+        proxy = source.get('proxy', '')
+        if proxy:
+            parsed = urllib.parse.urlsplit(proxy)
+            if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+                raise ValueError('资料下载代理配置不正确')
 
-    manifest = json.loads(download('manifest.json', 65536))
-    if manifest.get('schemaVersion') != 1 or set(manifest.get('files', {})) != {'characters.json', 'stories.json'}:
-        raise ValueError('公开资料清单版本不支持')
-    data = download('characters.json', 8 * 1024 * 1024)
-    expected = manifest.get('files', {}).get('characters.json', {})
-    if len(data) != expected.get('bytes') or hashlib.sha256(data).hexdigest() != expected.get('sha256'):
-        raise ValueError('公开角色资料校验失败，原有缓存已保留')
-    document = validate_characters(json.loads(data))
-    stories_data = download('stories.json', 8 * 1024 * 1024)
-    expected = manifest.get('files', {}).get('stories.json', {})
-    if len(stories_data) != expected.get('bytes') or hashlib.sha256(stories_data).hexdigest() != expected.get('sha256'):
-        raise ValueError('公开剧情标题校验失败，原有缓存已保留')
-    stories = validate_stories(json.loads(stories_data))
-    write(root / 'data/shared-character-profiles.json', document)
-    write(root / 'data/shared-story-titles.json', stories)
-    return {'configured': True, 'updated': True, 'characters': len(document['characters'])}
+    def load_source(source, open_public):
+        def download(name, limit):
+            request = urllib.request.Request(source_url(source, name), headers={'User-Agent': 'public-game-metadata-updater/1.0', 'Accept': 'application/octet-stream' if name == PACK_NAME else 'application/json'})
+            with open_public(request, timeout=20) as response:
+                data = response.read(limit + 1)
+            if len(data) > limit:
+                raise ValueError('公开资料包超出大小限制')
+            return data
+
+        if source.get('format') == 'packed-v1':
+            return validate_public_files(unpack_public_files(download(PACK_NAME, MAX_FILE_BYTES)))
+
+        manifest = json.loads(download('manifest.json', 65536))
+        if not isinstance(manifest, dict) or manifest.get('schemaVersion') != 1 or set(manifest.get('files', {})) != {'characters.json', 'stories.json'}:
+            raise ValueError('公开资料清单版本不支持')
+        documents = {}
+        for name, validate in [('characters.json', validate_characters), ('stories.json', validate_stories)]:
+            data = download(name, 8 * 1024 * 1024)
+            expected = manifest['files'][name]
+            if not isinstance(expected, dict) or len(data) != expected.get('bytes') or hashlib.sha256(data).hexdigest() != expected.get('sha256'):
+                raise ValueError('公开资料校验失败，原有缓存已保留：' + name)
+            documents[name] = validate(json.loads(data))
+        return documents['characters.json'], documents['stories.json']
+
+    failures, last_error = [], None
+    for index, source in enumerate(sources):
+        provider = 'gitee' if urllib.parse.urlsplit(source_url(source, 'manifest.json')).hostname == 'gitee.com' else 'github'
+        if on_source:
+            on_source(provider, index > 0)
+        transports = [opener or urllib.request.urlopen]
+        # Proxy settings are optional and local to a source. A machine without
+        # that proxy can still try its ordinary network connection.
+        if source.get('proxy') and opener is None:
+            transports.insert(0, urllib.request.build_opener(urllib.request.ProxyHandler({'https': source['proxy']})).open)
+        for open_public in transports:
+            try:
+                document, stories = load_source(source, open_public)
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                last_error = error
+                continue
+            # Both complete documents must pass validation from the same source.
+            write(root / 'data/shared-character-profiles.json', document)
+            write(root / 'data/shared-story-titles.json', stories)
+            return {'configured': True, 'updated': True, 'characters': len(document['characters']),
+                    'provider': provider, 'usedFallback': index > 0}
+        reason = 'HTTP ' + str(last_error.code) if isinstance(last_error, urllib.error.HTTPError) else type(last_error).__name__
+        failures.append(('Gitee' if provider == 'gitee' else 'GitHub') + ': ' + reason)
+    if len(sources) == 1:
+        raise last_error
+    raise RuntimeError('所有资料源更新失败，原有缓存已保留（' + '；'.join(failures) + '）') from None
 
 
 if __name__ == '__main__':

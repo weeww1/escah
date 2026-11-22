@@ -17,7 +17,7 @@ import shared_profile_data as public
 from player_paths import data_root
 
 ROOT = data_root()
-PUBLIC_FILES = ('characters.json', 'stories.json', 'manifest.json')
+PUBLIC_FILES = (*public.PUBLIC_FILES, public.PACK_NAME)
 
 
 def state_from_secret(value, protocol):
@@ -132,7 +132,7 @@ def run(project=ROOT, environ=None, client_factory=official.Client, roster_fetch
             output.mkdir(parents=True, exist_ok=True)
             for name in PUBLIC_FILES:
                 destination = output / name
-                temporary_file = destination.with_suffix('.json.tmp')
+                temporary_file = destination.with_name(destination.name + '.tmp')
                 temporary_file.write_bytes((scratch / 'public-data' / name).read_bytes())
                 temporary_file.replace(destination)
             print(json.dumps({'phase': 'ready-to-publish', 'characters': summary['characters']}), flush=True)
