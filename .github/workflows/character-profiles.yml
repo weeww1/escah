@@ -30,10 +30,15 @@ jobs:
           cache-dependency-path: character-profiles/cloud-requirements.txt
       - name: Install collection dependency
         run: python -m pip install --disable-pip-version-check -r character-profiles/cloud-requirements.txt
+      - name: Start private cloud proxy if configured
+        id: proxy
+        env:
+          DMM_MIHOMO_NODE_JSON: ${{ secrets.DMM_MIHOMO_NODE_JSON }}
+        run: python character-profiles/tools/cloud_proxy_runner.py start
       - name: Collect public profiles using the platform login
         env:
           DMM_COOKIES_JSON: ${{ secrets.DMM_COOKIES_JSON }}
-          DMM_HTTP_PROXY: ${{ secrets.DMM_HTTP_PROXY }}
+          DMM_HTTP_PROXY: ${{ steps.proxy.outputs.proxy_url || secrets.DMM_HTTP_PROXY }}
           DMM_REFRESH_ALL: ${{ inputs.refresh_all && '1' || '0' }}
         run: python character-profiles/tools/cloud_collect_profiles.py
       - name: Commit validated public metadata
@@ -44,3 +49,6 @@ jobs:
           META_REPOSITORY: ${{ github.repository }}
           META_BRANCH: ${{ github.ref_name }}
         run: python character-profiles/tools/cloud_publish_gitee.py
+      - name: Remove temporary proxy configuration
+        if: always()
+        run: python character-profiles/tools/cloud_proxy_runner.py stop
