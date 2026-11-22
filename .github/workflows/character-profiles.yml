@@ -49,6 +49,13 @@ jobs:
           META_REPOSITORY: ${{ github.repository }}
           META_BRANCH: ${{ github.ref_name }}
         run: python character-profiles/tools/cloud_publish_gitee.py
+      - name: Mirror validated public metadata to Gitee
+        env:
+          META_GIT_USER: weeww123321
+          META_GIT_TOKEN: ${{ secrets.GITEE_GIT_TOKEN }}
+          META_REPOSITORY: weeww123321/escah
+          META_BRANCH: master
+        run: python character-profiles/tools/cloud_mirror_gitee.py
       - name: Remove temporary proxy configuration
         if: always()
         run: python character-profiles/tools/cloud_proxy_runner.py stop
