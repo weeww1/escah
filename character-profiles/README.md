@@ -4,7 +4,9 @@ GitHub Actions 负责使用维护者的 DMM 平台 Cookie 获取新会话并采�
 
 ## 运行
 
-工作流：`.github/workflows/character-profiles.yml`。每周三北京时间 18:00 自动采集并同步，也可在 Actions 中手动运行。
+工作流：`.github/workflows/character-profiles.yml`。使用显式 `Asia/Shanghai` 时区，计划在每周三北京时间 18:00 自动采集并同步，也可在 Actions 中手动运行。GitHub 原生定时事件可能延迟或丢失，因此另设周三 18:17—22:17 每小时一次、周四 06:17 和 12:17 的补跑机会。每次先检查本周期是否已完成采集、GitHub 发布及 Gitee 镜像；全部成功后，本周其余自动运行直接跳过，不重复采集。电脑关机不影响云端执行。
+
+2026-11-25 19:00 的云端采集与发布已实测成功，周去重判断也已在云端验证。定时触发恢复须以运行记录的事件类型为 `schedule` 为准；手动运行成功不能证明自动触发正常。
 
 2026-11-22 端到端试跑 [45015850126](https://github.com/weeww1/escah/actions/runs/45015850126) 已成功：云端代理、DMM 认证、角色资料采集、GitHub 提交和 Gitee 镜像均通过；本次补全 1 个角色，复用 388 个已验证缓存，失败 0 个。
 
