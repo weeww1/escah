@@ -2,8 +2,8 @@ name: Update public character profiles
 
 on:
   schedule:
-    # Wednesday 18:00 Asia/Shanghai (UTC+8)
-    - cron: '0 10 * * 3'
+    # Temporary five-minute test after resetting scheduler registration.
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       refresh_all:
