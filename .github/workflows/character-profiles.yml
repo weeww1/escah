@@ -8,6 +8,9 @@ on:
     # Retry at 18:17, 19:17, 20:17, 21:17 and 22:17 Beijing time if no collection succeeded.
     - cron: '17 18-22 * * 3'
       timezone: 'Asia/Shanghai'
+    # Catch up on Thursday if Wednesday's scheduled events were dropped.
+    - cron: '17 6,12 * * 4'
+      timezone: 'Asia/Shanghai'
   workflow_dispatch:
     inputs:
       refresh_all:
@@ -15,7 +18,7 @@ on:
         type: boolean
         default: false
       scheduled_check:
-        description: Apply the weekly deduplication check to an external automatic trigger
+        description: Skip collection if this week's collection already succeeded
         type: boolean
         default: false
 
