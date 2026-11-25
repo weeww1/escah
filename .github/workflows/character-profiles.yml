@@ -2,8 +2,6 @@ name: Update public character profiles
 
 on:
   schedule:
-    # Temporary automatic-trigger diagnostic; remove after observing a schedule event.
-    - cron: '*/5 * * * *'
     # Wednesday 18:00 Asia/Shanghai (UTC+8)
     - cron: '0 10 * * 3'
     # Retry at 18:17, 19:17, 20:17, 21:17 and 22:17 Beijing time if no collection succeeded.
