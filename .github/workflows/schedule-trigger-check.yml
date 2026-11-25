@@ -1,0 +1,25 @@
+name: Check automatic scheduler registration
+
+on:
+  push:
+    paths:
+      - '.github/workflows/schedule-trigger-check.yml'
+  schedule:
+    - cron: '2/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Record the actual trigger
+        env:
+          TRIGGER_EVENT: ${{ github.event_name }}
+          TRIGGER_ACTOR: ${{ github.actor }}
+        run: |
+          printf 'event=%s actor=%s\n' "$TRIGGER_EVENT" "$TRIGGER_ACTOR"
+          date -u '+utc=%Y-%m-%dT%H:%M:%SZ'
