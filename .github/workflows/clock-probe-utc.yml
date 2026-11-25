@@ -1,0 +1,25 @@
+name: Clock delivery probe - utc
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '46 13 25 11 *'
+      timezone: 'Etc/UTC'
+    - cron: '51 13 25 11 *'
+      timezone: 'Etc/UTC'
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Record actual event delivery
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CRON_EXPRESSION: ${{ github.event.schedule }}
+        run: |
+          printf 'event=%s cron=%s\n' "$EVENT_NAME" "$CRON_EXPRESSION"
+          date -u '+utc=%Y-%m-%dT%H:%M:%SZ'

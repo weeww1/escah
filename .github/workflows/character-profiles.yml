@@ -2,10 +2,12 @@ name: Update public character profiles
 
 on:
   schedule:
-    # Wednesday 18:00 Asia/Shanghai (UTC+8)
-    - cron: '0 10 * * 3'
+    # Use an explicit timezone rather than relying on the scheduler's default.
+    - cron: '0 18 * * 3'
+      timezone: 'Asia/Shanghai'
     # Retry at 18:17, 19:17, 20:17, 21:17 and 22:17 Beijing time if no collection succeeded.
-    - cron: '17 10-14 * * 3'
+    - cron: '17 18-22 * * 3'
+      timezone: 'Asia/Shanghai'
   workflow_dispatch:
     inputs:
       refresh_all:
