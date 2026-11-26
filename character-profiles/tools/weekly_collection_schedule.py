@@ -73,9 +73,13 @@ def main():
                 return
         raise RuntimeError('Too many runs to verify the weekly collection safely')
 
-    result = decide(dt.datetime.now(dt.timezone.utc), env.get('GITHUB_EVENT_NAME'),
+    observed_at = dt.datetime.now(dt.timezone.utc)
+    result = decide(observed_at, env.get('GITHUB_EVENT_NAME'),
                     env.get('CHECK_WEEKLY_SCHEDULE') == '1', runs,
                     lambda run_id: api('/actions/runs/' + str(run_id) + '/jobs?per_page=100')['jobs'])
+    result.update({'event': env.get('GITHUB_EVENT_NAME', ''),
+                   'cron': env.get('SCHEDULE_CRON', ''), 'observedAt': observed_at.isoformat(),
+                   'runId': env.get('GITHUB_RUN_ID', '')})
     with open(env['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
         output.write('run=' + str(result['run']).lower() + '\n')
     print(json.dumps(result))

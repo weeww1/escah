@@ -5,8 +5,11 @@ on:
     # Use an explicit timezone rather than relying on the scheduler's default.
     - cron: '0 18 * * WED'
       timezone: 'Asia/Shanghai'
-    # Retry at 18:17, 19:17, 20:17, 21:17 and 22:17 Beijing time if no collection succeeded.
-    - cron: '17 18-22 * * WED'
+    # Check every day so a missed Wednesday/Thursday does not lose the entire week.
+    - cron: '17 18 * * *'
+      timezone: 'Asia/Shanghai'
+    # Additional Wednesday retries; each attempt uses the same weekly guard.
+    - cron: '17 19-22 * * WED'
       timezone: 'Asia/Shanghai'
     # Catch up on Thursday if Wednesday's scheduled events were dropped.
     - cron: '17 6,12 * * THU'
@@ -43,6 +46,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CHECK_WEEKLY_SCHEDULE: ${{ inputs.scheduled_check && '1' || '0' }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
         run: python3 character-profiles/tools/weekly_collection_schedule.py
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.weekly.outputs.run == 'true'
