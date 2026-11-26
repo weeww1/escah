@@ -1,0 +1,61 @@
+name: Native backup for weekly public profiles
+
+on:
+  schedule:
+    # Use an explicit timezone rather than relying on the scheduler's default.
+    - cron: '0 18 * * WED'
+      timezone: 'Asia/Shanghai'
+    # Check every day so a missed Wednesday/Thursday does not lose the entire week.
+    - cron: '17 18 * * *'
+      timezone: 'Asia/Shanghai'
+    # Additional Wednesday retries; each attempt uses the same weekly guard.
+    - cron: '17 19-22 * * WED'
+      timezone: 'Asia/Shanghai'
+    # Catch up on Thursday if Wednesday's scheduled events were dropped.
+    - cron: '17 6,12 * * THU'
+      timezone: 'Asia/Shanghai'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+concurrency:
+  group: native-character-profile-trigger
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the guarded collection workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+        run: |
+          python3 - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import urllib.request
+
+          repository = os.environ['REPOSITORY']
+          if repository != 'weeww1/escah':
+              raise RuntimeError('This backup is scoped to weeww1/escah')
+          url = f"{os.environ['GITHUB_API_URL']}/repos/{repository}/actions/workflows/character-profiles.yml/dispatches"
+          payload = {'ref': 'main', 'inputs': {'refresh_all': False, 'scheduled_check': True}}
+          request = urllib.request.Request(url, data=json.dumps(payload).encode(), method='POST', headers={
+              'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+              'Accept': 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+              'X-GitHub-Api-Version': '2026-03-10',
+              'User-Agent': 'escah-native-weekly-backup',
+          })
+          with urllib.request.urlopen(request, timeout=30) as response:
+              result = json.load(response)
+          print(json.dumps({'event': os.environ['GITHUB_EVENT_NAME'],
+                            'cron': os.environ.get('SCHEDULE_CRON', ''),
+                            'observedAt': dt.datetime.now(dt.timezone.utc).isoformat(),
+                            'dispatch': result}))
+          PY
