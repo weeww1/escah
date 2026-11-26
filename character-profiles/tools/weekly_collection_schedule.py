@@ -13,7 +13,7 @@ COMPLETED_STEPS = {'Collect public profiles using the platform login',
 
 def weekly_deadline(now):
     now = now.astimezone(dt.timezone.utc)
-    deadline = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    deadline = now.replace(hour=7, minute=0, second=0, microsecond=0)
     deadline -= dt.timedelta(days=(now.weekday() - 2) % 7)
     return deadline if deadline <= now else deadline - dt.timedelta(days=7)
 

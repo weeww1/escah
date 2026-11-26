@@ -2,17 +2,8 @@ name: Native backup for weekly public profiles
 
 on:
   schedule:
-    # Use an explicit timezone rather than relying on the scheduler's default.
-    - cron: '0 18 * * WED'
-      timezone: 'Asia/Shanghai'
-    # Check every day so a missed Wednesday/Thursday does not lose the entire week.
-    - cron: '17 18 * * *'
-      timezone: 'Asia/Shanghai'
-    # Additional Wednesday retries; each attempt uses the same weekly guard.
-    - cron: '17 19-22 * * WED'
-      timezone: 'Asia/Shanghai'
-    # Catch up on Thursday if Wednesday's scheduled events were dropped.
-    - cron: '17 6,12 * * THU'
+    # Wednesday 15:00 update and 18:00 retry, both guarded as one weekly window.
+    - cron: '0 15,18 * * WED'
       timezone: 'Asia/Shanghai'
   workflow_dispatch:
 

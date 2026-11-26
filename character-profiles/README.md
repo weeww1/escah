@@ -4,7 +4,7 @@ GitHub Actions 负责使用维护者的 DMM 平台 Cookie 获取新会话并采�
 
 ## 运行
 
-采集工作流：`.github/workflows/character-profiles.yml`，保留原来的手动入口，由 cron-job.org 在每周三北京时间 18:00 通过 `workflow_dispatch` 启动，18:30 及周四 06:30 补触发。它使用专用的单仓库 Actions 读写令牌，2027-11-26 到期；DMM Cookie、代理凭据和现有广权限令牌不提供给定时网站。原生备用定时独立保存在 `.github/workflows/character-profiles-schedule.yml`，使用显式 `Asia/Shanghai` 时区调用同一采集入口。GitHub 原生定时事件可能延迟或丢失，因此每天 18:17 检查本周是否还需补跑，并在周三 19:17—22:17 每小时一次、周四 06:17 和 12:17 增加补跑机会。补跑覆盖整个周更新周期，不会在周四中午以后就放弃本周更新。每次先检查本周期是否已完成采集、GitHub 发布及 Gitee 镜像；全部成功后，本周其余自动运行直接跳过，不重复采集。电脑关机不影响云端执行。
+采集工作流：`.github/workflows/character-profiles.yml`，保留原来的手动入口，由 cron-job.org 在每周三北京时间 15:00 通过 `workflow_dispatch` 启动，18:00 补触发；取消 18:30、周四及每日补跑。它使用专用的单仓库 Actions 读写令牌，2027-11-26 到期；DMM Cookie、代理凭据和现有广权限令牌不提供给定时网站。原生备用定时独立保存在 `.github/workflows/character-profiles-schedule.yml`，使用显式 `Asia/Shanghai` 时区调用同一采集入口。GitHub 原生备用定时同样只在周三 15:00、18:00 调用；周去重周期从周三北京时间 15:00（UTC 07:00）开始。每次先检查本周期是否已完成采集、GitHub 发布及 Gitee 镜像；全部成功后，本周其余自动运行直接跳过，不重复采集。电脑关机不影响云端执行。
 
 2026-11-25 19:00 的云端采集与发布已实测成功。2026-11-26 北京时间 07:07，[45718899347](https://github.com/weeww1/escah/actions/runs/45718899347) 由原生 `schedule` 事件自动触发并成功：周去重确认本周期已完成采集及双站同步，正确跳过重复采集、发布和镜像。自动触发与周去重均已有真实云端运行记录；本次自动补跑没有重新采集资料。
 
