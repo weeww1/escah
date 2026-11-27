@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from player_paths import data_root
 from shared_profile_data import validate_bundle
-from cloud_publish_gitee import FILES, publish, repository_url
+from cloud_publish_gitee import FILES, public_files, publish, repository_url
 
 
 def mirror(project=None, environ=None):
@@ -39,7 +39,7 @@ def mirror(project=None, environ=None):
             raise RuntimeError('无法读取 Gitee 镜像仓库，请检查网络和推送授权')
         output = checkout / 'character-profiles'
         (output / 'public-data').mkdir(parents=True, exist_ok=True)
-        for relative in FILES:
+        for relative in public_files(project):
             shutil.copyfile(project / relative, output / relative)
         validate_bundle(output / 'public-data', require_packed=True)
         # Existing unrelated files and history stay in this separate checkout.

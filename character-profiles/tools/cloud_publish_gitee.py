@@ -14,6 +14,15 @@ FILES = ['public-data/metadata.dat']
 RETIRED_FILES = ['public-data/characters.json', 'public-data/stories.json', 'public-data/manifest.json']
 
 
+def public_files(project):
+    extra = Path(project) / 'public-data/preview-index.dat'
+    if extra.is_file():
+        from shared_profile_previews import read_index
+        read_index(extra.read_bytes())
+        return [*FILES, 'public-data/preview-index.dat']
+    return FILES
+
+
 def repository_url(value, provider='gitee'):
     host = {'gitee': 'gitee.com', 'github': 'github.com'}.get(provider)
     if not host:
@@ -41,6 +50,7 @@ def publish(project=ROOT, environ=None):
     if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_./-]*', branch) or '..' in branch or any(not p or p == '.' for p in branch.split('/')):
         raise RuntimeError('资料分支配置不正确')
     validate_bundle(project / 'public-data', require_packed=True)
+    files = public_files(project)
     env.update({'GIT_TERMINAL_PROMPT': '0', 'GIT_TRACE': '0', 'GIT_CURL_VERBOSE': '0', 'GIT_TRACE_CURL': '0'})
     with tempfile.TemporaryDirectory(prefix='metadata-push-') as temporary:
         askpass = Path(temporary) / 'askpass.py'
@@ -61,13 +71,13 @@ def publish(project=ROOT, environ=None):
             prefix = project.resolve().relative_to(repository_root).as_posix()
         except ValueError:
             raise RuntimeError('资料目录不在当前 Git 仓库内') from None
-        allowed = {((prefix + '/') if prefix != '.' else '') + name for name in [*FILES, *RETIRED_FILES]}
+        allowed = {((prefix + '/') if prefix != '.' else '') + name for name in [*files, *RETIRED_FILES]}
         staged = git(['diff', '--cached', '--name-only']).stdout.splitlines()
         if set(staged) - allowed:
             raise RuntimeError('流水线暂存区存在非资料文件，已停止发布')
         retired_tracked = git(['ls-files', '--', *RETIRED_FILES]).stdout.splitlines()
         remove_legacy_files(project / 'public-data')
-        paths = [*FILES, *retired_tracked]
+        paths = [*files, *retired_tracked]
         git(['add', '--', *paths])
         staged_changes = git(['diff', '--cached', '--name-status']).stdout.splitlines()
         retired_paths = {((prefix + '/') if prefix != '.' else '') + name for name in RETIRED_FILES}

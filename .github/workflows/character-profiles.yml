@@ -56,6 +56,7 @@ jobs:
           DMM_COOKIES_JSON: ${{ secrets.DMM_COOKIES_JSON }}
           DMM_HTTP_PROXY: ${{ steps.proxy.outputs.proxy_url || secrets.DMM_HTTP_PROXY }}
           DMM_REFRESH_ALL: ${{ inputs.refresh_all && '1' || '0' }}
+          PREVIEW_GITEE_TOKEN: ${{ secrets.GITEE_GIT_TOKEN }}
         run: python character-profiles/tools/cloud_collect_profiles.py
       - name: Commit validated public metadata
         if: steps.weekly.outputs.run == 'true'

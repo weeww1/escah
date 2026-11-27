@@ -77,7 +77,7 @@ def fetch_roster(proxy=''):
             records.update(decode_manifest(data))
     except Exception:
         raise RuntimeError('云端未取得完整官方资源目录，请检查运行地区或 DMM_HTTP_PROXY；旧资料未覆盖') from None
-    return {name: value for name, value in records.items() if re.fullmatch(r'(?:bundle_scenarioscript_char_|bundle_chara_c-panel_)\d+', name)}
+    return {name: value for name, value in records.items() if re.fullmatch(r'(?:bundle_scenarioscript_char_|bundle_chara_c-panel_)\d+', name) or name.startswith('bundle_eventimage_')}
 
 
 def seed_public_cache(project, scratch):
@@ -126,6 +126,10 @@ def run(project=ROOT, environ=None, client_factory=official.Client, roster_fetch
             report = official.collect(client, refresh=env.get('DMM_REFRESH_ALL') == '1', emit=lambda message: print(message, flush=True))
             if report['failed']:
                 raise RuntimeError('部分角色资料读取失败，本次未发布；旧资料保留')
+            if env.get('PREVIEW_GITEE_TOKEN'):
+                from shared_profile_previews import cloud as cloud_previews
+                preview_report = cloud_previews(project, records, env['PREVIEW_GITEE_TOKEN'])
+                print(json.dumps({'phase': 'profile-previews', **preview_report}), flush=True)
             summary = public.export(scratch)
             public.validate_bundle(scratch / 'public-data')
             # Never copy a temporary cache, cookie file or login state to the repository.

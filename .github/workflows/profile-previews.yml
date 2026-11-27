@@ -1,0 +1,56 @@
+name: Prepare profile preview gallery
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Maximum missing characters to process (0 means all)
+        type: number
+        default: 3
+
+permissions:
+  contents: write
+
+concurrency:
+  group: character-profile-collection
+  cancel-in-progress: false
+
+jobs:
+  previews:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: character-profiles/cloud-requirements.txt
+      - name: Install preview dependencies
+        run: python -m pip install --disable-pip-version-check -r character-profiles/cloud-requirements.txt
+      - name: Check preview codec and download scope
+        run: python -m unittest discover -s character-profiles/tools -p 'test_*profile_preview*.py'
+      - name: Build missing profile previews
+        env:
+          PREVIEW_GITEE_TOKEN: ${{ secrets.GITEE_GIT_TOKEN }}
+          PREVIEW_BATCH_LIMIT: ${{ inputs.limit }}
+        run: python character-profiles/tools/shared_profile_previews.py --cloud-backfill --limit "$PREVIEW_BATCH_LIMIT"
+      - name: Commit validated preview index
+        env:
+          META_PROVIDER: github
+          META_GIT_USER: x-access-token
+          META_GIT_TOKEN: ${{ github.token }}
+          META_REPOSITORY: ${{ github.repository }}
+          META_BRANCH: ${{ github.ref_name }}
+        run: python character-profiles/tools/cloud_publish_gitee.py
+      - name: Mirror preview index to Gitee
+        env:
+          META_GIT_USER: weeww123321
+          META_GIT_TOKEN: ${{ secrets.GITEE_GIT_TOKEN }}
+          META_REPOSITORY: weeww123321/escah
+          META_BRANCH: master
+        run: python character-profiles/tools/cloud_mirror_gitee.py
+      - name: Verify requested batch completed
+        run: python character-profiles/tools/shared_profile_previews.py --verify-complete
