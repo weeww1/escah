@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import secrets
+import concurrent.futures
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -83,7 +84,7 @@ def publish(directory, token, destination):
     client = Releases(token)
     release = client.release('profile-previews-v1')
     assets = {v.get('name'): v for v in client.assets(release['id'])}
-    uploaded = 0
+    pending = []
     for row in document['characters'].values():
         if row.get('url'):
             public_url({'browser_download_url': row['url']}, row['asset'])
@@ -93,15 +94,65 @@ def publish(directory, token, destination):
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != row['sha256']:
             raise ValueError('待发布的预览文件不存在或校验失败')
         if name not in assets:
-            assets[name] = client.upload(release['id'], path)
-            uploaded += 1
+            pending.append((name, path))
+    # Cross-border round trips dominate these small files. Bound concurrency,
+    # retain content-addressed reuse, and keep the index private until complete.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(Releases(token).upload, release['id'], path): name for name, path in pending}
+        for future in concurrent.futures.as_completed(futures):
+            assets[futures[future]] = future.result()
+    for row in document['characters'].values():
+        if row.get('url'):
+            continue
+        name = row['asset']
         row['url'] = public_url(assets[name], name)
     content = encode(json.dumps(document, sort_keys=True, separators=(',', ':')).encode())
     destination.parent.mkdir(parents=True, exist_ok=True)
     tmp = destination.with_name(destination.name + '.tmp'); tmp.write_bytes(content); tmp.replace(destination)
     # Preserve published receipts for subsequent owner-side incremental exports.
     (directory / 'build-state.json').write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding='utf-8')
-    return {'uploaded': uploaded, 'characters': len(document['characters']), 'releaseId': release['id']}
+    return {'uploaded': len(pending), 'characters': len(document['characters']), 'releaseId': release['id']}
+
+
+def recover(directory, token, destination, records):
+    """Recover published small files after an interrupted owner/cloud batch."""
+    from profile_preview_pack import encode, decode
+    client = Releases(token); release = client.release('profile-previews-v1')
+    document = json.loads(decode(destination.read_bytes())) if destination.is_file() else {'schemaVersion': 1, 'knownCharacters': [], 'characters': {}}
+    known = {row['asset'] for row in document['characters'].values()}
+    pending = [asset for asset in client.assets(release['id']) if asset.get('name') not in known]
+    def read_asset(asset):
+        name = asset.get('name', '')
+        if not __import__('re').fullmatch(r'[a-f0-9]{64}\.dat', name):
+            raise ValueError('Published preview asset has an invalid name')
+        url = public_url(asset, name)
+        public = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with public.open(url, timeout=40) as response:
+            data = response.read(32 * 1024 * 1024 + 1)
+        if hashlib.sha256(data).hexdigest() + '.dat' != name:
+            raise ValueError('Published preview asset hash mismatch')
+        metadata, files = unpack(data)
+        cid = metadata['id']; script = 'bundle_scenarioscript_char_' + str(cid)
+        if metadata.get('rendering', {}).get('width') != 640 or script not in records:
+            raise ValueError('Published preview asset is not the expected 640px character format')
+        bundles = {script: records[script]['hash']}
+        for picture in metadata['previews'].values():
+            suffix = '_'.join(picture['ref'].lower().split('_')[:2])
+            names = [n for n in records if n.startswith('bundle_eventimage_') and n.endswith(suffix)]
+            if len(names) != 1:
+                raise ValueError('Published preview resource group is ambiguous')
+            bundles[names[0]] = records[names[0]]['hash']
+        return str(cid), {'asset': name, 'bytes': len(data), 'sha256': name[:-4],
+            'metadata': metadata, 'bundles': bundles, 'url': url}, data
+    directory.mkdir(parents=True, exist_ok=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        for cid, row, data in pool.map(read_asset, pending):
+            (directory / row['asset']).write_bytes(data)
+            document['characters'][cid] = row
+    destination.write_bytes(encode(json.dumps(document, sort_keys=True, separators=(',', ':')).encode()))
+    (directory / 'build-state.json').write_text(json.dumps(document, indent=2), encoding='utf-8')
+    (directory / 'preview-index.dat').write_bytes(destination.read_bytes())
+    return {'recovered': len(pending), 'characters': len(document['characters'])}
 
 
 def trial(directory, tag='profile-preview-trial-20261127'):

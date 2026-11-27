@@ -6,6 +6,8 @@ import re
 import tempfile
 import urllib.parse
 import urllib.request
+import concurrent.futures
+import shutil
 from pathlib import Path
 
 import image_updater as images
@@ -96,7 +98,7 @@ def refresh(root=shared.ROOT, notify=lambda value: None, opener=None):
             transports.insert(0, urllib.request.build_opener(urllib.request.ProxyHandler({'https': source['proxy']})).open)
         for transport in transports:
             try:
-                request = urllib.request.Request(shared.source_url(source, INDEX), headers={'User-Agent': 'escah-profile-previews/1.0'})
+                request = urllib.request.Request(shared.source_url(source, INDEX), headers={'User-Agent': 'escah-profile-previews/1.0', 'Cache-Control': 'no-cache'})
                 with transport(request, timeout=20) as response:
                     value = response.read(2 * 1024 * 1024 + 1)
                 if len(value) > 2 * 1024 * 1024:
@@ -163,7 +165,10 @@ def cloud(project, records, token, backfill=False, limit=0):
                     raise ValueError('预览生成禁止下载其他类型资源')
                 store.ensure([name])
                 return store.have[name]
-            report = pack.build(scratch, ids=wanted, output=output, fetch_missing=fetch, width=640)
+            if backfill and len(wanted) > 3:
+                report = parallel_build(scratch, records, wanted, output, previous)
+            else:
+                report = pack.build(scratch, ids=wanted, output=output, fetch_missing=fetch, width=640)
             if report['pending'] and not backfill:
                 raise RuntimeError('新增角色预览生成未完成，本次保留旧清单供补跑重试')
             published = publish(output, token, index)
@@ -173,6 +178,49 @@ def cloud(project, records, token, backfill=False, limit=0):
             return result
         finally:
             filler.ROOT, filler.BUNDLE_RECEIPTS = old_root, old_receipts
+
+
+def _preview_worker_init(records, directory):
+    global _worker_records, _worker_directory
+    _worker_records, _worker_directory = records, Path(directory)
+
+
+def _preview_worker(cid):
+    import fill_stories as filler
+    root = _worker_directory / str(cid)
+    shared.write(root / 'manifest_data/resource_manifest.json', {'records': _worker_records})
+    filler.ROOT, filler.BUNDLE_RECEIPTS = root, root / 'data/story_bundle_cache.json'
+    store = filler.BundleStore(_worker_records)
+    def fetch(name, record):
+        if not re.fullmatch(r'bundle_(?:scenarioscript_char_\d+|eventimage_[a-z0-9_]+)', name):
+            raise ValueError('Preview worker cannot download unrelated resource types')
+        store.ensure([name]); return store.have[name]
+    output = root / 'public-previews'
+    report = pack.build(root, ids={cid}, output=output, fetch_missing=fetch, width=640)
+    row = images.read_json(output / 'build-state.json').get('characters', {}).get(str(cid))
+    return cid, row, report['pending'], str(output)
+
+
+def parallel_build(scratch, records, wanted, output, previous):
+    """Independent processes avoid sharing downloader globals or receipt files."""
+    document = json.loads(json.dumps(previous))
+    completed, pending = [], []
+    with concurrent.futures.ProcessPoolExecutor(max_workers=4, initializer=_preview_worker_init,
+            initargs=(records, str(scratch / 'workers'))) as pool:
+        futures = [pool.submit(_preview_worker, cid) for cid in sorted(wanted)]
+        for future in concurrent.futures.as_completed(futures):
+            cid, row, failures, folder = future.result()
+            pending.extend(failures)
+            if row:
+                shutil.copyfile(Path(folder) / row['asset'], output / row['asset'])
+                document['characters'][str(cid)] = row
+                completed.append(cid)
+            print(json.dumps({'phase': 'preview-generation', 'done': len(completed) + len(pending),
+                'total': len(wanted), 'failed': len(pending)}), flush=True)
+    document['knownCharacters'] = sorted(set(document.get('knownCharacters', [])) | set(completed))
+    shared.write(output / 'build-state.json', document)
+    (output / INDEX).write_bytes(pack.encode(json.dumps(document, sort_keys=True, separators=(',', ':')).encode()))
+    return {'completed': completed, 'pending': pending}
 
 
 if __name__ == '__main__':
